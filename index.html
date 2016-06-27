@@ -1,0 +1,293 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<style>  
+    div.padded {  
+      padding-top: 0px;  
+      padding-right: 100px;  
+      padding-bottom: 0.25in;  
+      padding-left: 100px;  
+    }  
+  </style> 
+<title>Naga Alluri |  CS 184</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rel="stylesheet" type="text/css" href="style.css" media="screen" />
+</head>
+<body>
+<br />
+<h1 align="middle">Assignment 3: PathTracer</h1>
+    <h2 align="middle">Naga Alluri</h2>
+
+    <div class="padded">
+<!--         <p>Use this section to write an overview of the assignment. All of the text in your write-up should be <em>in your own words</em>. If you need to add additional HTML features to this document, you can search the <a href="http://www.w3schools.com/">http://www.w3schools.com/</a> website for instructions. To edit the HTML, you can just copy and paste existing chunks and fill in the text and image file names appropriately.</p> -->
+
+        <p>In the PathTracer project we implemented various functions throughout the rendering procedure from generating the camera rays and sampling to various intersection algorithms for bounding boxes and the bounding volume hierarchy to estimating different illuminations and how to render different materials. There were five parts to the project and while most seemed straighforward to implement, debugging was particularly challenging as sometimes a blank screen in one part actually suggested an error in an earlier part. However, throughout the debugging process I found two strategies particularly helpful. Noise was a large issue for me throughout the later parts. To debug issues like this I commented out large portions of code to identify the noise's source. I also tried taking a step back conceptually to think about whether or not another aspect of the renderer either before that function or after could play a role in causing the noise.</p>
+
+    <h2 align="middle">Part 1: Ray Generation and Intersection</h2>
+        <p> This portion of the project focused on the implementation of the ray generation and primitive intersection parts of the rendering pipeline.</p>
+
+        <p>In this initial phase of the project, I first started by implementing the raytrace_pixel method. This method returns a Spectrum that estimates the integral of the irradiance over a pixel. To do so, I created a loop that averaged the Spectrums of a given number of randomly generated camera rays. In order to generate the rays, I needed to implement a generate_ray function that took in a 2D point and created a corresponding world space ray. The trickiest aspect of this function's implementation involved converting the ray from the camera space coordinate system to the world space coordinate system. Given two field of view angles and the camera's position, I could compute a ray in the camera space and then convert in to the world space using a c2w matrix that defined the transform from camera to world space. These two methods summarized the ray generation aspects of the rendering pipeleine.</p>
+
+        <p> The next task in Part 1 involved implementing a method to detect the intersection of a ray and a triangle. My implementation for this method used the Moller Trumbore Algorithm.This algorithm takes advantage of the parameterization of the intersection point in terms of barycentric coordinates. More specifically, the algorithm uses the property that coordinates u, v that define the intersection point with regards to the triangles vertices will not change regardless if the triangle is rotated, scaled, stretched, or translated. Taking advantage of this property, Moller Trumbore is able to quickly compute if a ray intersects the plane defined by the triangle. Along with triangle intersection, I also implemented a method to compute ray-sphere intersection. This method essentially uses the mathematical representations of rays and spheres and computes the intersection point, making sure that if the ray intersects the sphere multiple times, to use the closer point. The method also accounts for rays that may have been generated inside of the sphere which is observed in cases such as refraction. </p>
+
+        <p> The images below depict normal shading for a few small dae files </p> 
+        <div align="middle">
+            <table style="width=100%" border="1px" cellpadding="10px">
+                <tr>
+                    <td align="middle">
+                    <img src="images/p1a.png" width="480px" />
+                    <figcaption align="middle">empty</figcaption>
+                    <img src="images/p1b.png" width="480px" />
+                    <figcaption align="middle">spheres</figcaption>
+                    <img src="images/p1c.png" width="480px" />
+                    <figcaption align="middle">gems</figcaption>
+                </tr>
+            </table>
+        </div>
+<!--         <p>Here is an example of how to include a simple formula:</p>
+        <p align="middle"><pre align="middle">a^2 + b^2 = c^2</pre></p>
+        <p>or, alternatively, you can include an SVG image of a LaTex formula.</p>
+        <p>This time it's your job to copy-paste in the rest of the sections :)</p> -->
+
+    <h2 align="middle">Part 2: Bounding Volume Hierarchy</h2>
+        <p>Part 2 of this project focused the construction of a bounding volume hierarchy (BVH) to acclerate ray-surface intersection. This involved three separate functions: construct, and two intersection algorithms. The first was construct which established the bounding volume hierarchy by recursively partitioning the primitives within the scene. The next was the intersect function for a bounding box object. This involved returning a boolean that reflected whether or not that bounding box was intersected by a given ray during given time bounds. Lastly we implemented a traversal algorithm for the bounding volume hierarchy which traversed the hierarchy to determine whether or not there was an intersection and what the closest hit was. </p>
+
+        <p>My BVH construction involved a recursive function, which ended up the assignment of all primitives to a leaf node. To do this, my algorithm began by taking in a list of primitives and a given max_leaf_size, which was the max number of primitives we wanted per leaf. First I iterated through all the primitives and established a bounding box containing all the primitives and a centroid box which I expanded to contain that new bounding box's centroid. Next I compared the number of primitives currently at hand. If the number of primitives was equal to or less than the max_leaf_size, I knew I could take the primitives and set them in one node and return, because it was valid for all those primitives to be in one leaf. However, if I had more primitives than the max_leaf_size, I knew I would have to separate the primitives into two groups that would become that node's left child's primitives and that node's right child's primitive. To actually establish this grouping, I delineated the primitives along a specific axis. To choose this axis I used the dimension with the largest centroid box extent, which came from the difference between the box's max and its min. With that axis chosen I would establish a split point along that axis by simply taking the midpoint of the centroid box. Then, I iterated through my given list of primitives and compared each primitive's box's centroid's corresponding dimension to the split point. If the primitive's centroid was less than or equal to the midpoint, I knew I could set in as a primitive of the left child, and otherwise I would send it to the right child. In the case of the empty grouping of primitives, aka left side had 0 and right side didn't, I would set the primitives of the right side to the current node, and if the number of primitives was fewer than the max_leaf_size, I would set it as a leaf node.In the other instance where both the left side and the right side were non - zero, I would call the function again now with the left primitives only then with the right primitives only. The idea behind using this heuristic was to minimize the cost of ray intersection. By splitting the bounding box by the midpoint, I hoped to reduce the total cost of ray intersection by reducing the amount of primitives that would have to be checked for intersection. </p>
+
+        <p>Initially my implementation did not leverage the centroid box, losing out on a lot of partititions. In my previous implementation, it placed half of CBbunny's primitives in one leaf node. However, by altering the split point by using the centroid box, and placing stricter checks on leaf nodes, I was able to get much faster run times.</p>
+
+        <p>My BVH intersect function worked by traversing the bounding volume hierarchy and determined whether or not there was a hit. Whereas we could have naively looped over every primitive, the objective was accelerating the process. Prior to this part, I was unable to render CBbunny without waiting a very long time. This function was accelerated several ways, primarily by using the BVH structure. My implementation begins by taking a ray and a node and determines whether than ray intersects that node's bounding box. If it doesn't hit the bounding box, we can easily return false. However, if it does hit the box, I checked to see if the node was a leaf, and if so, I iterated through all the primitives within it to determine whether or not there was an intersection and returned the closest hit. In the instance where there was a bounding box intersection and that node wasn't a leaf, I would continue traversing by calling the function now on that node's left child and that node's right child. Eventually, I would return true only if at least one of those two recursive calls on the two children returned with an intersection.</p>
+
+        <p> The implementation of the BVH Acceleration structure allowed me to render much larger .dae files, including those with hundreds of thousands of triangles. The resulting images are depicted below </p> 
+
+        <div align="middle">
+            <table style="width=100%" border="1px" cellpadding="10px">
+                <tr>
+                    <td>
+                    <img src="images/p2a.png" width="480px" />
+                    <figcaption align="middle">maxplank</figcaption>
+                    <td>
+                    <img src="images/p2b.png" width="480px" />
+                    <figcaption align="middle">cow</figcaption>
+                <tr>
+                    <td>
+                    <img src="images/p2c.png" width="480px" />
+                    <figcaption align="middle">peter</figcaption>
+            </table>
+        </div>
+
+    <h2 align="middle">Part 3: Direct Illumination</h2>
+        <p>In part 3 of the project, I was estimating direct illumination. To do this I implemented the function estimate_direct_lighting which takes in a ray and an intersection point and returns a spectrum. To start off we establish the hit point on the ray given the intersection. In addition we calculate the out direction using the ray. After this I began my algorithm to estimate the direct illumination by iterating through each of the lights within the scene. If that light is a delta light, we only need to collect one sample, otherwise we need collect ns_area_light, a given number, of samples. To actually collect a sample, I collect the incoming radiance, incoming direction, the distance from the hit point to the light, and the probability density function corresponding to the incoming direction. With this I evaluate the incoming direction in object space in order to pass it to BSDF. Next I check to see if the sampled light is behind the surface by checking the sign of the incoming direction's z coordinate. If it is in front of the surface, I cast a shadow ray towards the light and check to see if it intersects with any primitives in the scene. If so, I create a shadow. However, if it doesn't hit I evaluate the irradiance with the previous sample and a bsdf sample while averaging over the number of samples and the pdf.</p>
+
+        <p> The images below show direct lighting effects such as area light shadows and ambient occlusion </p>
+
+        <div align="middle">
+            <table style="width=100%" border="1px" cellpadding="10px">
+                <tr>
+                    <td align="middle">
+                    <img src="images/p3a.png" width="480px" />
+                    <figcaption align="middle">dragon</figcaption>
+                    <img src="images/p3b.png" width="480px" />
+                    <figcaption align="middle">bunny</figcaption>
+                    <img src="images/p3c.png" width="480px" />
+                    <figcaption align="middle">blob</figcaption>
+                </tr>
+            </table>
+        </div>
+
+        <p> The images below depict how noise levels in soft shadows in a particular scene change with different numbers of light rays </p>
+
+        <div align="middle">
+            <table style="width=100%" border="1px" cellpadding="10px">
+                <tr>
+                    <td>
+                    <img src="images/part3_2.png" width="480px" />
+                    <figcaption align="middle">2 light rays</figcaption>
+                    <td>
+                    <img src="images/part3_4.png" width="480px" />
+                    <figcaption align="middle">4 light rays</figcaption>
+                <tr>
+                    <td>
+                    <img src="images/part3_8.png" width="480px" />
+                    <figcaption align="middle">8 light rays</figcaption>
+                    <td>
+                    <img src="images/part3_16.png" width="480px" />
+                    <figcaption align="middle">16 light rays</figcaption>
+                <tr>
+                    <td>
+                    <img src="images/part3_32.png" width="480px" />
+                    <figcaption align="middle">32 light rays</figcaption>
+                    <td>
+                    <img src="images/part3_64.png" width="480px" />
+                    <figcaption align="middle">64 light rays</figcaption>
+                </tr>
+            </table>
+        </div>
+
+    <h2 align="middle">Part 4: Indirect Illumination</h2>
+        <p>In this part, I was estimating the indirect lighting in the scene by implementing the function estimate_indirect_lighting, given a ray and an intersection. Knowing this, the function began by establishing some key values that I would use later in the algorithm. I would use the ray and intersection to establish the hit point relative to the ray and the out direction. With this, I sampled the bsdf on the intersection point to collect several pieces of information, the incoming direction and the probability density function at that direction. I then utilized the Russian roulette technique to randomly decide whether to terminate the ray. To determine when to ramdomly return an empty ray I first wanted to calculate the probability that that ray should terminate vs the probability that it shouldn't. The probability that the ray should terminate is directly related to the reflectance, where the lower the reflectance, the higher the chance that the ray would be terminated. If the ray is terminated, I returned an empty spectrum. Otherwise, I created a new ray with the origin being the hit point with the addition of a slight constant multiplied by the incoming direction. The direction of the origin was the incoming direction in world coordinates. With this ray, I recursively traced it to collect the incoming radiance, convert it to outgoing radiance and then divide by the pdf and the non terminating probability. </p>
+
+        <p> The images below depict scenes that utilize global (direct and indirect) illumination. </p>
+
+        <div align="middle">
+            <table style="width=100%" border="1px" cellpadding="10px">
+                <tr>
+                    <td align="middle">
+                    <img src="images/p4a.png" width="480px" />
+                    <figcaption align="middle">dragon</figcaption>
+                    <img src="images/p4b.png" width="480px" />
+                    <figcaption align="middle">coil</figcaption>
+                </tr>
+            </table>
+        </div>
+
+        <p> The images below compare a scene with only direct illumination and only indirect illumination </p>
+
+        <div align="middle">
+            <table style="width=100%" border="1px" cellpadding="10px">
+                <tr>
+                    <td>
+                    <img src="images/p4d.png" width="480px" />
+                    <figcaption align="middle">direct</figcaption>
+                    <td>
+                    <img src="images/p4e.png" width="480px" />
+                    <figcaption align="middle">indirect</figcaption>
+                </tr>
+            </table>
+        </div>
+
+        <p> The images below compare rendered views with various values of max_ray_depth </p>
+
+        <div align="middle">
+            <table style="width=100%" border="1px" cellpadding="10px">
+                <tr>
+                    <td>
+                    <img src="images/p4_spheres_lambertian_256_0.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 0</figcaption>
+                    <td>
+                    <img src="images/p4_spheres_lambertian_256_1.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 1</figcaption>
+                <tr>
+                    <td>
+                    <img src="images/p4_spheres_lambertian_256_2.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 2</figcaption>
+                    <td>
+                    <img src="images/p4_spheres_lambertian_256_4.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 4</figcaption>
+                <tr>
+                    <td>
+                    <img src="images/p4_spheres_lambertian_256_6.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 6</figcaption>
+                    <td>
+                    <img src="images/p4_spheres_lambertian_256_100.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 100</figcaption>
+                </tr>
+            </table>
+        </div>
+
+        <p> The images below compare rendered views with various values of sample-per-pixel rates</p>
+
+        <div align="middle">
+            <table style="width=100%" border="1px" cellpadding="10px">
+                <tr>
+                    <td>
+                    <img src="images/spheres_part4_1.png" width="480px" />
+                    <figcaption align="middle">1 sample-per-pixel</figcaption>
+                    <td>
+                    <img src="images/spheres_part4_4.png" width="480px" />
+                    <figcaption align="middle">4 sample-per-pixel</figcaption>
+                <tr>
+                    <td>
+                    <img src="images/spheres_part4_16.png" width="480px" />
+                    <figcaption align="middle">16 sample-per-pixel</figcaption>
+                    <td>
+                    <img src="images/spheres_part4_64.png" width="480px" />
+                    <figcaption align="middle">64 sample-per-pixel</figcaption>
+                <tr>
+                    <td>
+                    <img src="images/spheres_part4_256.png" width="480px" />
+                    <figcaption align="middle">256 sample-per-pixel</figcaption>
+                    <td>
+                    <img src="images/spheres_part4_1024.png" width="480px" />
+                    <figcaption align="middle">1024 sample-per-pixel</figcaption>
+                </tr>
+            </table>
+        </div>
+
+    <h2 align="middle">Part 5: Materials</h2>
+        <p>In this portion of the assignment, I implemented different BSDF functions to allow the rendering of different materials.</p>
+
+        <p> The first material that I emulated was that of a mirror surface. To do so, I implemented a sampling function for the MirrorBSDF. This sampling function, sample_f, samples a direction from some probability density function and then returns the reflected radiance. In the case of the mirror surface, our sampling function can exactly sample the reflection direction. Therefore our function always returns the reflectance divided by the cosine of the incoming vector with the normal, which in our case was just the z value of the incoming vector. In order to compute the reflection direction, I implemented a reflect method which computes the reflection of a vector about the normal. </p>
+
+        <p> The next material that I implemented was that of a glassy surface. This material required me to implement a refract function. The main idea of this method utilized Snell's law which computes the outgoing vector direction using the angle between the incoming direction and the normal, the angle between the outcoming direction and the normal, and the refractive indices of the medium. This method also accounts for the case of total internal reflection where the incoming ray has no well-defined refraction direction. After implementing the refraction method, I then implemented the sample_f function for the GlassBSDF. This method uses Schlick's approximation to model a glass material by deciding the ratio of reflection energy to refraction energy. After computing the ratio, the method appropriately computed the reflection or the refraction of the input direction to determine the outgoing direction and outgoing radiance. </p>
+
+        <div align="center">
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                    <img src="images/dragon.png" width="480px" />
+                    <figcaption align="middle">Results Caption: Dragon</figcaption>
+                </tr>
+            </table>
+        </div>
+
+        <p> The images below compare high accuracy rendered views with various values of max_ray_depth </p>
+
+        <div align="middle">
+            <table style="width=100%" border="1px" cellpadding="10px">
+                <tr>
+                    <td>
+                    <img src="images/spheres_part5_1024_0.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 0</figcaption>
+                    <td>
+                    <img src="images/spheres_part5_1024_1.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 1</figcaption>
+                <tr>
+                    <td>
+                    <img src="images/spheres_part5_1024_2.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 2</figcaption>
+                    <td>
+                    <img src="images/spheres_part5_1024_4.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 4</figcaption>
+                <tr>
+                    <td>
+                    <img src="images/spheres_part5_1024_6.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 6</figcaption>
+                    <td>
+                    <img src="images/spheres_part5_1024_100.png" width="480px" />
+                    <figcaption align="middle">max_ray_depth 100</figcaption>
+                </tr>
+            </table>
+        </div>
+
+        <p> The images below compare rendered views with various values of sample-per-pixel rates where there is one sample per light and the max ray depth is 100</p>
+
+        <div align="middle">
+            <table style="width=100%" border="1px" cellpadding="10px">
+                <tr>
+                    <td>
+                    <img src="images/spheres_part5_1_100_l1.png" width="480px" />
+                    <figcaption align="middle">1 sample-per-pixel </figcaption>
+                    <td>
+                    <img src="images/spheres_part5_4_100_l1.png" width="480px" />
+                    <figcaption align="middle">4 sample-per-pixel </figcaption>
+                <tr>
+                    <td>
+                    <img src="images/spheres_part5_16_100_l1.png" width="480px" />
+                    <figcaption align="middle">16 sample-per-pixel </figcaption>
+                    <td>
+                    <img src="images/spheres_part5_64_100_l1.png" width="480px" />
+                    <figcaption align="middle">64 sample-per-pixel </figcaption>
+                <tr>
+                    <td>
+                    <img src="images/spheres_part5_1024_100_l1.png" width="480px" />
+                    <figcaption align="middle">1024 sample-per-pixel </figcaption>
+
+                </tr>
+            </table>
+        </div>
+
+</div>
+</body>
+</html>
+

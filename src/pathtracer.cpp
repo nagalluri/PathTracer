@@ -412,17 +412,74 @@ Spectrum PathTracer::estimate_direct_lighting(const Ray& r, const Intersection& 
 
   // make a coordinate system for a hit point
   // with N aligned with the Z direction.
+  
   Matrix3x3 o2w;
   make_coord_space(o2w, isect.n);
   Matrix3x3 w2o = o2w.T();
+
 
   // w_out points towards the source of the ray (e.g.,
   // toward the camera if this is a primary ray)
   const Vector3D& hit_p = r.o + r.d * isect.t;
   const Vector3D& w_out = w2o * (-r.d);
+  
 
   Spectrum L_out;
 
+  for (SceneLight *sc : scene->lights) {
+    //printf("%s\n", "light");
+
+    if (sc->is_delta_light()) {
+      Vector3D wi; //direction from hit_p to light source [world space]
+      float distToLight;
+      float pdf;  
+      Spectrum sample1 = sc->sample_L(hit_p, &wi, &distToLight, &pdf);
+      Vector3D w_in = w2o * wi; //w_in is in objection space
+      if (w_in.z >= 0) {
+        Vector3D o = hit_p + (EPS_D * wi);
+        Ray ray = Ray(o, wi);
+        ray.max_t = distToLight;
+        ray.depth = max_ray_depth;
+        if (bvh->intersect(ray) == false) {
+            Spectrum s = isect.bsdf->f(w_out, w_in);
+            //sample1 = sample1 * s;
+            Spectrum irradiance = sample1 * w_in.z; //convert to irradiance
+            L_out += (irradiance * s) / pdf;
+
+        }
+      }
+      //L_out += sample1;
+    } else {
+      int counter = ns_area_light;
+      Spectrum sum;
+      while (counter > 0) {
+        Vector3D wi;
+        float distToLight;
+        float pdf;  
+        Spectrum sample = sc->sample_L(hit_p, &wi, &distToLight, &pdf);
+        Vector3D w_in = w2o * wi;
+        if (w_in.z < 0) {
+          counter = counter - 1;
+          continue;
+        }
+        if (w_in.z >= 0) {
+          Vector3D o = hit_p + (EPS_D * wi);
+          Ray ray = Ray(o, wi);
+          ray.max_t = distToLight;
+          ray.depth = max_ray_depth;
+          if (bvh->intersect(ray) == false) {
+            Spectrum irradiance = sample * w_in.z;
+            Spectrum s = isect.bsdf->f(w_out, w_in);
+            irradiance *= s;
+            L_out += irradiance/(ns_area_light * pdf);
+          }
+
+          counter = counter - 1;
+          //L_out += (sample * abs_cos_theta(w_in.z))/(ns_area_light * pdf);
+        } 
+      }
+    }
+  }
   return L_out;
 }
 
@@ -437,9 +494,30 @@ Spectrum PathTracer::estimate_indirect_lighting(const Ray& r, const Intersection
   Vector3D hit_p = r.o + r.d * isect.t;
   Vector3D w_out = w2o * (-r.d);
 
-  return Spectrum();
+  //-----------------------^ given
+  float pdf;  
+  Vector3D w_in;
 
+  Spectrum bsdfSample = isect.bsdf->sample_f(w_out, &w_in, &pdf);
+  
+  float probability = 1.0 - clamp(20.0 * bsdfSample.illum(), 0.0, 1.0); //prob not terminating
+  if (coin_flip(probability)) {
+    return Spectrum();
+  } else {
+    Vector3D o = hit_p + EPS_D * o2w * w_in; 
+    Vector3D d = o2w * w_in;
+    Ray ray = Ray(o, d); 
+    ray.depth = r.depth - 1;
+
+    Spectrum in_Radiance;
+    in_Radiance = trace_ray(ray, isect.bsdf->is_delta());
+
+    //convert incoming radiance into outgoing radiance estimator
+    in_Radiance = (bsdfSample * (in_Radiance * abs_cos_theta(w_in)));
+    return in_Radiance / (pdf * (1.0 - probability));
+  }
 }
+
 
 Spectrum PathTracer::trace_ray(const Ray &r, bool includeLe) {
 
@@ -455,7 +533,7 @@ Spectrum PathTracer::trace_ray(const Ray &r, bool includeLe) {
   // This line returns a color depending only on the normal vector 
   // to the surface at the intersection point.
   // Remove it when you are ready to begin Part 3.
-  return normal_shading(isect.n);
+  //return normal_shading(isect.n);
 
   // We only include the emitted light if the previous BSDF was a delta distribution
   // or if the previous ray came from the camera.
@@ -466,6 +544,8 @@ Spectrum PathTracer::trace_ray(const Ray &r, bool includeLe) {
   // Delta BSDFs have no direct lighting since they are zero with probability 1 --
   // their values get accumulated through indirect lighting, where the BSDF 
   // gets to sample itself.
+  // if (!isect.bsdf->is_delta()) 
+  //   L_out += estimate_direct_lighting(r, isect);
   if (!isect.bsdf->is_delta()) 
     L_out += estimate_direct_lighting(r, isect);
 
@@ -488,7 +568,25 @@ Spectrum PathTracer::raytrace_pixel(size_t x, size_t y) {
   int num_samples = ns_aa; // total samples to evaluate
   Vector2D origin = Vector2D(x,y); // bottom left corner of the pixel
 
-  return Spectrum();
+  size_t w = sampleBuffer.w;
+  size_t h = sampleBuffer.h;
+  Spectrum val = Spectrum();
+  if (num_samples == 1) {
+    Ray ray = camera->generate_ray((x + 0.5)/w, (y + 0.5)/h);
+    ray.depth = max_ray_depth;
+    val = trace_ray(ray, true);  
+  } else {
+    int counter = num_samples;
+    while (counter > 0) {
+      Vector2D sample = gridSampler->get_sample();
+      Ray ray = camera->generate_ray((x + sample.x)/w, (y + sample.y)/h);
+      ray.depth = max_ray_depth;
+      //printf("%zu\n", max_ray_depth);
+      val += trace_ray(ray, true);
+      counter = counter - 1;
+    } 
+  }
+  return val/num_samples;
 }
 
 void PathTracer::raytrace_tile(int tile_x, int tile_y,

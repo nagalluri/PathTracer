@@ -117,7 +117,16 @@ Ray Camera::generate_ray(double x, double y) const {
   // Note: hFov and vFov are in degrees.
   // 
 
-  return Ray(Vector3D(), Vector3D());
+  Vector3D bottomleft = Vector3D(-tan(radians(hFov)*.5), -tan(radians(vFov)*.5),-1);
+  Vector3D topright = Vector3D( tan(radians(hFov)*.5),  tan(radians(vFov)*.5),-1);
+  Vector3D diff = topright - bottomleft;
+  Vector3D result = Vector3D((diff.x * x) + bottomleft.x, (diff.y * y) + bottomleft.y, -1);
+  result = c2w * result;
+  result.normalize();
+  Ray ray = Ray(pos, result);
+  ray.min_t = nClip;
+  ray.max_t = fClip;
+  return ray;
 
 }
 
